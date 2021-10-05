@@ -1,2 +1,4 @@
 .antlr/
 testdata/
+*.json
+*.txt

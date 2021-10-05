@@ -2063,7 +2063,7 @@ update_statistics
 
 // https://msdn.microsoft.com/en-us/library/ms174979.aspx
 create_table
-    : CREATE TABLE table_name '(' column_def_table_constraints  (','? table_indices)*  ','? ')' (LOCK simple_id)? table_options* (ON id_ | DEFAULT)? (TEXTIMAGE_ON id_ | DEFAULT)?';'?
+    : CREATE TABLE table_name '(' column_def_table_constraints  (','? table_indices)*  ','? ')' (LOCK simple_id)? table_options* (ON id_ ('(' id_ ')')? | DEFAULT)? (TEXTIMAGE_ON id_ | DEFAULT)?';'?
     ;
 
 table_indices
@@ -2096,7 +2096,8 @@ alter_table
                              | DROP CONSTRAINT constraint=id_
                              | WITH (CHECK | NOCHECK) ADD (CONSTRAINT constraint=id_)?
                                 ( FOREIGN KEY '(' fk=column_name_list ')' REFERENCES table_name ('(' pk=column_name_list')')? on_delete? on_update?
-                                | CHECK '(' search_condition ')' )
+                                | CHECK '(' search_condition ')'
+                                | UNIQUE '(' column_name_list ')' )
                              | CHECK CONSTRAINT constraint=id_
                              | (ENABLE | DISABLE) TRIGGER id_?
                              | REBUILD table_options
@@ -2419,6 +2420,7 @@ drop_index
     ( drop_relational_or_xml_or_spatial_index (',' drop_relational_or_xml_or_spatial_index)*
     | drop_backward_compatible_index (',' drop_backward_compatible_index)*
     )
+    (index_options)?
     ';'?
     ;
 
@@ -2683,7 +2685,7 @@ execute_body_batch
 //https://docs.microsoft.com/it-it/sql/t-sql/language-elements/execute-transact-sql?view=sql-server-ver15
 execute_body
     : (return_status=LOCAL_ID '=')? (func_proc_name_server_database_schema | execute_var_string)  execute_statement_arg?
-    | '(' execute_var_string (',' execute_var_string)* ')' (AS? (LOGIN | USER) '=' STRING)? (AT_KEYWORD linkedServer=id_)?
+    | '(' execute_var_string ((',' | '+') execute_var_string)* ')' (AS? (LOGIN | USER) '=' STRING)? (AT_KEYWORD linkedServer=id_)?
     ;
 
 execute_statement_arg
@@ -3032,6 +3034,7 @@ column_def_table_constraint
 // https://msdn.microsoft.com/en-us/library/ms187742.aspx
 column_definition
     : id_ (data_type | AS expression PERSISTED? ) (COLLATE id_)? null_notnull?
+      column_constraint*
       ((CONSTRAINT constraint=id_)? null_or_default null_or_default?
        | IDENTITY ('(' seed=DECIMAL ',' increment=DECIMAL ')')? (NOT FOR REPLICATION)?)?
       ROWGUIDCOL?
@@ -3056,7 +3059,7 @@ table_constraint
     : (CONSTRAINT constraint=id_)?
        ((PRIMARY KEY | UNIQUE) clustered? '(' column_name_list_with_order ')' index_options? (ON id_)?
          | CHECK (NOT FOR REPLICATION)? '(' search_condition ')'
-         | DEFAULT '('?  ((STRING | PLUS | function_call | DECIMAL)+ | NEXT VALUE FOR table_name) ')'? FOR id_
+         | DEFAULT ('('|'(' '(')?  ((STRING | PLUS | function_call | DECIMAL)+ | NEXT VALUE FOR table_name) (')' | ')' ')')? FOR id_
          | FOREIGN KEY '(' fk = column_name_list ')' REFERENCES table_name ('(' pk = column_name_list')')? on_delete? on_update?)
     ;
 
@@ -3238,6 +3241,7 @@ search_condition
 
 predicate
     : EXISTS '(' subquery ')'
+    | UPDATE '(' ID ')'
     | freetext_predicate
     | expression comparison_operator expression
     | expression comparison_operator (ALL | SOME | ANY) '(' subquery ')'
@@ -3251,7 +3255,7 @@ predicate
 
 query_expression
     : (query_specification | '(' query_expression ')')
-    |  query_specification order_by_clause? unions+=sql_union+ //if using top, order by can be on the "top" side of union :/
+    |  (query_specification | '(' query_expression ')') order_by_clause? unions+=sql_union+ //if using top, order by can be on the "top" side of union :/
     ;
 
 sql_union
@@ -3832,13 +3836,14 @@ entity_name_for_parallel_dw
 
 full_table_name
     : (linkedServer=id_ '.' '.' schema=id_   '.'
-    |                       server=id_    '.' database=id_ '.'  schema=id_   '.'
-    |                                         database=id_ '.' (schema=id_)? '.'
-    |                                                           schema=id_    '.')? table=id_
+    | server=id_    '.' database=id_ '.'  schema=id_   '.'
+    | database=id_ '.' (schema=id_)? '.'
+    | schema=id_    '.')?
+    table=id_
     ;
 
 table_name
-    : (database=id_ '.' (schema=id_)? '.' | schema=id_ '.')? table=id_
+    : (server=id_ '.' database=id_ '.' (schema=id_)? '.' | database=id_ '.' (schema=id_)? '.' | schema=id_ '.')? table=id_
     | (database=id_ '.' (schema=id_)? '.' | schema=id_ '.')? blocking_hierarchy=BLOCKING_HIERARCHY
     ;
 
@@ -3976,7 +3981,7 @@ send_conversation
 data_type
     : scaled=(VARCHAR | NVARCHAR | BINARY_KEYWORD | VARBINARY_KEYWORD) '(' MAX ')'
     | ext_type=id_ '(' scale=DECIMAL ',' prec=DECIMAL ')'
-    | ext_type=id_ '(' scale=DECIMAL ')'
+    | ext_type=id_ '(' scale=(DECIMAL | MAX) ')'
     | ext_type=id_ IDENTITY ('(' seed=DECIMAL ',' inc=DECIMAL ')')?
     | double_prec=DOUBLE PRECISION?
     | unscaled_type=id_
@@ -3986,6 +3991,7 @@ default_value
     : NULL_
     | DEFAULT
     | constant
+    | function_call
     ;
 
 // https://msdn.microsoft.com/en-us/library/ms179899.aspx
